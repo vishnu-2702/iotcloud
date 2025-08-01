@@ -21,109 +21,141 @@ import { Terminal } from 'lucide-react'
 const arduinoCode = `
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
-#include <ArduinoJson.h> // Use ArduinoJson v6 or later
+#include <WiFiClientSecure.h> // Correct include for HTTPS
+#include <ArduinoJson.h>      // Use the standard, robust ArduinoJson library
 
 // --- WIFI and API Configuration ---
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "VISHNU";
+const char* password = "12345678";
 
-// IMPORTANT: Replace with your deployed application URL
-// For local development, you might use your computer's local IP address
-// Example: "http://192.168.1.100:9002/api/telemetry"
-const char* serverUrl = "YOUR_APP_URL/api/telemetry"; 
+// --- Server Configuration ---
+// IMPORTANT: ngrok free tier URLs expire. Before running, ensure this URL
+// is still active in your ngrok terminal. If not, update it here.
+const char* serverUrl = "https://iotcloud-prd9.vercel.app/api/telemetry";
 
 // --- Device Configuration ---
-// IMPORTANT: Get these values from the AetherControl dashboard after registering your device
-const char* deviceId = "YOUR_DEVICE_ID"; 
-const char* apiKey = "YOUR_API_KEY";
+const char* deviceId = "dev-ko9ifcj";
+const char* apiKey = "ak-1f45b595-1567-432a-bb10-5f93c1938efb";
+
+// --- Global Objects for Stability ---
+// Declaring these globally prevents memory fragmentation and crashes.
+WiFiClientSecure client;
+HTTPClient http;
+
+// --- Timing and Simulation Variables ---
+unsigned long lastTime = 0;
+const unsigned long timerDelay = 10000; // Send data every 10 seconds
+float baseTemperature = 22.0;
+float baseHumidity = 55.0;
+unsigned long startTime;
+
+// Forward declaration of functions
+float generateTemperature();
+float generateHumidity(float currentTemperature);
+void sendTelemetryData(float temperature, float humidity);
 
 void setup() {
   Serial.begin(115200);
   delay(10);
 
-  // Connect to Wi-Fi
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
+  // --- Configure for HTTPS ---
+  // This is for testing purposes. It bypasses the server's certificate validation.
+  client.setInsecure();
 
+  // --- Connect to Wi-Fi ---
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
   Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
+  Serial.print("Connected! IP Address: ");
   Serial.println(WiFi.localIP());
+
+  startTime = millis();
 }
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFiClient client;
-    HTTPClient http;
+  // Send an HTTP POST request based on the timerDelay
+  if ((millis() - lastTime) > timerDelay) {
+    if (WiFi.status() == WL_CONNECTED) {
+      // Generate simulated sensor values
+      float temperature = generateTemperature();
+      float humidity = generateHumidity(temperature); // Pass temp for better simulation
 
-    // --- Sensor Reading Logic ---
-    // Replace these with your actual sensor reading functions
-    float temperature = 25.5; // Example value, e.g., read from a DHT11/22
-    float humidity = 60.0;    // Example value, e.g., read from a DHT11/22
-    // float pressure = 1013.25; // Example for a BME280 sensor
-    int light_level = 750;     // Example for a photoresistor/LDR
-    bool switch_state = true;  // Example for a digital switch
+      // Send the data
+      sendTelemetryData(temperature, humidity);
+    } else {
+      Serial.println("WiFi Disconnected");
+    }
+    lastTime = millis();
+  }
+}
 
-    // --- JSON Payload Creation ---
-    // This creates a JSON object to send to the server.
-    // It's dynamically sized to be memory efficient.
+float generateTemperature() {
+  unsigned long currentTime = millis();
+  float timeInHours = (currentTime - startTime) / 3600000.0;
+  float dailyCycle = 5.0 * sin(2 * PI * timeInHours / 24.0);
+  float randomVariation = (random(-100, 101) / 100.0) * 2.0;
+  float temperature = baseTemperature + dailyCycle + randomVariation;
+  return constrain(temperature, 15.0, 35.0);
+}
+
+float generateHumidity(float currentTemperature) {
+  float temperatureFactor = -0.5 * (currentTemperature - baseTemperature);
+  float randomVariation = (random(-100, 101) / 100.0) * 8.0;
+  float humidity = baseHumidity + temperatureFactor + randomVariation;
+  return constrain(humidity, 20.0, 90.0);
+}
+
+void sendTelemetryData(float temperature, float humidity) {
+  Serial.println("\n--- New Request ---");
+
+  // Begin the HTTP connection
+  if (http.begin(client, serverUrl)) {
+    // Add all necessary headers
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("ngrok-skip-browser-warning", "true"); // CRITICAL for ngrok
+    http.addHeader("User-Agent", "ESP8266-Telemetry/1.0");
+
+    // Create JSON payload using ArduinoJson for reliability
     DynamicJsonDocument doc(256);
-
-    // Add required fields
     doc["deviceId"] = deviceId;
     doc["apiKey"] = apiKey;
-
-    // --- Add data based on your widget type ---
-    // Uncomment the lines that match the widget you configured in the dashboard.
-    
-    // For "Temperature & Humidity" widget
     doc["temperature"] = temperature;
     doc["humidity"] = humidity;
 
-    // For "Light Sensor" widget
-    // doc["light_level"] = light_level;
-
-    // For "On/Off Switch" widget
-    // doc["isOn"] = switch_state;
-    
     String requestBody;
     serializeJson(doc, requestBody);
 
-    Serial.print("Sending POST to server: ");
+    Serial.println("Sending data:");
     Serial.println(requestBody);
 
-    // --- Send POST request ---
-    http.begin(client, serverUrl);
-    http.addHeader("Content-Type", "application/json");
-    
+    // Send the POST request
     int httpResponseCode = http.POST(requestBody);
 
+    // Handle the response
     if (httpResponseCode > 0) {
       String response = http.getString();
       Serial.print("HTTP Response code: ");
       Serial.println(httpResponseCode);
-      Serial.print("Response: ");
+      Serial.print("Server response: ");
       Serial.println(response);
     } else {
-      Serial.print("Error on sending POST: ");
+      Serial.print("Error sending POST. HTTP Code: ");
       Serial.println(httpResponseCode);
+      Serial.printf("HTTPClient error: %s\n", http.errorToString(httpResponseCode).c_str());
     }
 
+    // Free resources
     http.end();
   } else {
-    Serial.println("WiFi Disconnected. Retrying...");
+    Serial.println("!!! FAILED to begin HTTP connection. Check URL and memory. !!!");
   }
-
-  // Send data every 30 seconds
-  delay(30000); 
+  Serial.println("--------------------");
 }
+
 `;
 
 export default function IntegrationPage() {
