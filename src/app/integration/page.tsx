@@ -25,17 +25,17 @@ const arduinoCode = `
 #include <ArduinoJson.h>      // Use the standard, robust ArduinoJson library
 
 // --- WIFI and API Configuration ---
-const char* ssid = "VISHNU";
-const char* password = "12345678";
+const char* ssid = "wifi ssid";
+const char* password = "wifi password";
 
 // --- Server Configuration ---
 // IMPORTANT: ngrok free tier URLs expire. Before running, ensure this URL
 // is still active in your ngrok terminal. If not, update it here.
-const char* serverUrl = "https://iotcloud-prd9.vercel.app/api/telemetry";
+const char* serverUrl = "URL_/api/telemetry";
 
 // --- Device Configuration ---
-const char* deviceId = "dev-ko9ifcj";
-const char* apiKey = "ak-1f45b595-1567-432a-bb10-5f93c1938efb";
+const char* deviceId = "device name from all devices pannel";
+const char* apiKey = "api key from all devices pannel";
 
 // --- Global Objects for Stability ---
 // Declaring these globally prevents memory fragmentation and crashes.
